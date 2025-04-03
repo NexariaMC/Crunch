@@ -2,17 +2,12 @@ package redempt.crunch;
 
 import redempt.crunch.data.FastNumberParsing;
 import redempt.crunch.exceptions.ExpressionCompilationException;
-import redempt.crunch.functional.ArgumentList;
-import redempt.crunch.functional.ExpressionEnv;
-import redempt.crunch.functional.Function;
-import redempt.crunch.functional.FunctionCall;
-import redempt.crunch.token.BinaryOperator;
-import redempt.crunch.token.LiteralValue;
-import redempt.crunch.token.Token;
-import redempt.crunch.token.TokenType;
-import redempt.crunch.token.UnaryOperation;
-import redempt.crunch.token.UnaryOperator;
-import redempt.crunch.token.Value;
+import redempt.crunch.functional.*;
+import redempt.crunch.token.*;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Objects;
 
 public class ExpressionParser {
 
@@ -31,7 +26,7 @@ public class ExpressionParser {
             throw new ExpressionCompilationException(null, "Environment is null");
         }
         maxVarIndex = env.getVariableCount() - 1;
-        this.input = input;
+        this.input = input.replace(" ", "");
         this.environment = env;
     }
 
@@ -142,6 +137,8 @@ public class ExpressionParser {
                 return parseNestedExpression();
             case '$':
                 return parseAnonymousVariable();
+            case '\'':
+                return parseString();
             default:
                 break; // Ignore
         }
@@ -155,6 +152,24 @@ public class ExpressionParser {
             error("Expected value");
         }
         return term;
+    }
+
+    private StringValue parseString() {
+        // skip \"
+        advanceCursor();
+
+        // parse everything till we find another "
+        int start = cursor;
+
+        while ('\'' != peek()) {
+            advanceCursor();
+            if (isAtEnd()) {
+                break;
+            }
+        }
+        expectChar('\'');
+
+        return new StringValue(input.substring(start, cursor));
     }
 
     private LiteralValue parseLiteral() {
@@ -183,9 +198,35 @@ public class ExpressionParser {
                 Function function = (Function) token;
                 ArgumentList args = parseArgumentList(function.getArgCount());
                 return new FunctionCall(function, args.getArguments());
+
+            case FUNCTION_FACTORY:
+                FunctionFactory factory = (FunctionFactory) token;
+                args = parseAllArguments();
+
+                return Objects.requireNonNull(factory.create(args), String.format("Factory %s returned null function", factory));
         }
         error("Expected leading operation");
         return null;
+    }
+
+    private ArgumentList parseAllArguments() {
+        expectChar('(');
+        whitespace();
+
+        final List<Value> arguments = new ArrayList<>(2);
+
+        // Till we reach end of function
+        while (peek() != ')') {
+            Value value = parseExpression();
+            arguments.add(value);
+
+            if (!isAtEnd() && peek() != ')') {
+                expectChar(',');
+            }
+        }
+        expectChar(')');
+
+        return new ArgumentList(arguments.toArray(new Value[0]));
     }
 
     private ArgumentList parseArgumentList(int args) {
